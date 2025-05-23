@@ -3,22 +3,52 @@ import tensorflow as tf
 import numpy as np
 import pickle
 import json
-import re  # <- Añade esto para limpieza de texto
+import re
+from datetime import datetime
+from translate import Translator
 
-app = Flask(__name__)
+app = Flask(__name__,
+            static_url_path='',
+            static_folder='static',
+            template_folder='templates')
+
+# Configuración de traducción
+translator_en_es = Translator(to_lang="es")
+translator_es_en = Translator(from_lang="es", to_lang="en")
 
 # Cargar recursos
 model = tf.keras.models.load_model("model/intent_classifier.keras")
 with open("model/vectorizer.pkl", "rb") as f:
     vectorizer = pickle.load(f)
-with open("data/disease_db.json", "r") as f:
+with open("data/disease_db.json", "r", encoding='utf-8') as f:
     disease_db = json.load(f)
 
-# Limpiar y normalizar texto
-def clean_text(text):
-    text = text.lower().strip()
-    text = re.sub(r'[^\w\s]', '', text)  # Elimina signos de puntuación
-    return text
+def traducir_a_esp(texto):
+    """Traduce inglés->español con fallback elegante"""
+    try:
+        return translator_en_es.translate(texto) if texto else texto
+    except Exception as e:
+        print(f"Error traduciendo: {e}")
+        return texto
+
+def traducir_a_eng(texto):
+    """Traduce español->inglés para el modelo"""
+    try:
+        return translator_es_en.translate(texto) if texto else texto
+    except:
+        return texto
+
+def limpiar_texto(texto):
+    texto = texto.lower().strip()
+    texto = re.sub(r'[^\w\sáéíóúüñ]', '', texto)
+    return texto
+
+def buscar_enfermedad(texto):
+    texto = limpiar_texto(texto)
+    for enfermedad in disease_db:
+        if enfermedad.lower() in texto:
+            return enfermedad
+    return None
 
 @app.route("/")
 def home():
@@ -27,40 +57,46 @@ def home():
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
-        user_input = clean_text(request.json["message"])  # <- Limpia el input
-        X = vectorizer.transform([user_input]).toarray()
-        pred = model.predict(X, verbose=0)
+        # 1. Recibir input
+        user_input = request.json["message"]
         
+        # 2. Preprocesar y traducir a inglés (para el modelo)
+        cleaned_input = limpiar_texto(user_input)
+        translated_input = traducir_a_eng(cleaned_input)
+        
+        # 3. Predecir intención
+        X = vectorizer.transform([translated_input]).toarray()
         intents = ["diagnosis", "precautions", "description"]
-        intent = intents[np.argmax(pred)]
+        intent_prob = model.predict(X, verbose=0)[0]
+        main_intent = intents[np.argmax(intent_prob)]
         
-        # Ejemplo: Buscar coincidencias de enfermedades
-        matched_disease = None
-        for disease in disease_db:
-            if disease in user_input:
-                matched_disease = disease
-                break
-        
-        if intent == "diagnosis":
-            if matched_disease:
-                response = f"Posible {matched_disease}. Descripción: {disease_db[matched_disease]['description']}"
-            else:
-                response = "Por favor menciona síntomas específicos (ej: 'dolor de cabeza con fiebre')"
-        
-        elif intent == "precautions":
-            if matched_disease:
-                response = f"Precauciones para {matched_disease}: " + ", ".join(disease_db[matched_disease]["precautions"])
-            else:
-                response = "Di el nombre de una enfermedad (ej: 'precauciones para la gripe')"
-        
+        # 4. Generar respuesta en inglés
+        disease = buscar_enfermedad(cleaned_input)
+        if main_intent == "diagnosis":
+            response = (f"Possible {disease}. {disease_db[disease]['description']}" 
+                       if disease else "Please describe specific symptoms")
+        elif main_intent == "precautions":
+            response = (f"Precautions for {disease}: " + 
+                       ", ".join(disease_db[disease]["precautions"])
+                       if disease else "Mention a disease name")
         else:
-            response = "¿Necesitas descripciones de enfermedades? Menciona una (ej: 'qué es la diabetes')"
+            response = (f"About {disease}: {disease_db[disease]['description']}" 
+                       if disease else "What disease information do you need?")
         
-        return jsonify({"response": response})
-    
+        # 5. Traducir respuesta al español
+        return jsonify({
+            "response": traducir_a_esp(response),
+            "intent": main_intent,
+            "confidence": float(intent_prob.max()),
+            "timestamp": datetime.now().strftime("%H:%M")
+        })
+        
     except Exception as e:
-        print("Error:", str(e))  # Debug en consola
-        return jsonify({"response": "Hubo un error procesando tu solicitud"}), 500
+        print(f"Error en /chat: {str(e)}")
+        return jsonify({
+            "response": traducir_a_esp("Sorry, an error occurred. Please try again."),
+            "timestamp": datetime.now().strftime("%H:%M")
+        }), 500
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)

@@ -1,28 +1,39 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <title>Chatbot Médico</title>
-  </head>
-  <body>
-    <div id="chatbox"></div>
-    <input type="text" id="userInput" placeholder="Escribe tu pregunta..." />
-    <button onclick="sendMessage()">Enviar</button>
-    <script>
-      async function sendMessage() {
-        const input = document.getElementById("userInput").value;
-        const response = await fetch("/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: input }),
-        });
-        const data = await response.json();
-        document.getElementById(
-          "chatbox"
-        ).innerHTML += `<p>Usuario: ${input}</p>`;
-        document.getElementById(
-          "chatbox"
-        ).innerHTML += `<p>Bot: ${data.response}</p>`;
-      }
-    </script>
-  </body>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediBot - Asistente Médico</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
+</head>
+<body>
+    <div class="header">
+        <h1>MediBot</h1>
+        <p>Asistente médico inteligente</p>
+    </div>
+    
+    <div class="chat-container">
+        <div id="chatbox">
+            <div class="bot-message message">
+                ¡Hola! Soy MediBot, tu asistente médico virtual. ¿En qué puedo ayudarte hoy?
+                <div class="timestamp">Hoy</div>
+            </div>
+        </div>
+        
+        <div class="typing-indicator" id="typingIndicator">
+            <div class="typing-dots">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+            </div>
+        </div>
+        
+        <div class="input-area">
+            <input type="text" id="userInput" placeholder="Escribe tu pregunta o síntoma..." autocomplete="off">
+            <button id="sendButton">Enviar</button>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
+</body>
 </html>
